@@ -11,7 +11,7 @@
     
 # 实例方法：
 # - `__init__()`:
-#     初始化 `MahjongShantenCalculator` 实例，并读取组合向听表数据。
+#     初始化 `ShantenCalculator` 实例，并读取组合向听表数据。
     
 # - `calc_lh(hand: List[int], m: int) -> int`:
 #     计算面子手向听数。
@@ -27,6 +27,7 @@
     
 # - `shanten(hand: List[int], mode: int = 7) -> Tuple[int, int]`:
 #     计算手牌的总向听数，默认模式为7（计算所有类型的向听数）。
+#     1 计算面子手 2 计算七对 4 计算国士
 
 # 类属性：
 # - `INDEX_S_FILE`:
@@ -38,7 +39,7 @@
 import csv
 from typing import List, Tuple
 
-class MahjongShantenCalculator:
+class ShantenCalculator:
     INDEX_S_FILE: str = "./index_s.csv"  # 数牌组合向听表
     INDEX_H_FILE: str = "./index_h.csv"  # 字牌组合向听表
     # 所有牌共34种136枚
@@ -180,7 +181,7 @@ class MahjongShantenCalculator:
         return self.calc(hand, mode, m)
 
 # # Example 1：
-# calculator = MahjongShantenCalculator()
+# calculator = ShantenCalculator()
 # result = calculator.shanten([
 #     2, 2, 2, 0, 0, 0, 0, 0, 0,  # Manzu
 #     0, 0, 0, 2, 2, 2, 0, 0, 0,  # Pinzu
@@ -191,7 +192,7 @@ class MahjongShantenCalculator:
 # # (向听数+1，对应牌型)
 
 # Example 2:
-# calculator = MahjongShantenCalculator()
-# hand_parsed = MahjongShantenCalculator.parse_hand("29m167p168s334z")
+# calculator = ShantenCalculator()
+# hand_parsed = ShantenCalculator.parse_hand("29m167p168s334z")
 # result = calculator.shanten(hand_parsed)
 # print(result)
