@@ -90,6 +90,7 @@ class ShantenCalculator:
 
     @staticmethod
     def add1(lhs: List[int], rhs: List[int], m: int) -> List[int]:
+        lhs = lhs.copy()  # 创建lhs的副本，避免修改原始lhs
         for j in range(m + 5, 4, -1):
             sht = min(lhs[j] + rhs[0], lhs[0] + rhs[j])
             for k in range(5, j):
@@ -106,6 +107,7 @@ class ShantenCalculator:
 
     @staticmethod
     def add2(lhs: List[int], rhs: List[int], m: int) -> List[int]:
+        lhs = lhs.copy()  # 创建lhs的副本，避免修改原始lhs
         j = m + 5
         sht = min(lhs[j] + rhs[0], lhs[0] + rhs[j])
         for k in range(5, j):
@@ -175,7 +177,7 @@ class ShantenCalculator:
     def shanten(self, hand: List[int], mode: int = 7) -> Tuple[int, int]:
         # 根据手牌数量确定对应的m，手牌数量异常时m按4处理
         hand_number = sum(hand)
-        m_dict = {2: 0, 5: 1, 8: 2, 11: 3, 14: 4}
+        m_dict = {1:0, 2: 0, 4:1, 5: 1, 7:2, 8: 2, 10:3, 11: 3, 13:4, 14: 4}
         m = m_dict.get(hand_number, 4)
         # 计算手牌向听数
         return self.calc(hand, mode, m)
@@ -191,8 +193,15 @@ class ShantenCalculator:
 # print(result)
 # # (向听数+1，对应牌型)
 
-# Example 2:
+# # Example 2:
 # calculator = ShantenCalculator()
-# hand_parsed = ShantenCalculator.parse_hand("29m167p168s334z")
+# hand_parsed = ShantenCalculator.parse_hand("1333599m1355667p")
+# print(hand_parsed)
 # result = calculator.shanten(hand_parsed)
+# print(result)
+
+# calculator = ShantenCalculator()
+# result = calculator.shanten((1, 0, 3, 0, 1, 0, 0, 0, 2, 1, 0, 1, 0, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+# print(result)
+# result = calculator.shanten((1, 0, 3, 0, 1, 0, 0, 0, 2, 1, 0, 1, 0, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 # print(result)

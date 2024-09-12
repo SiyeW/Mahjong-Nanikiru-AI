@@ -1,7 +1,7 @@
 # Hosting the nanikiru game
 # receive: what to cut
 # sent: pais, shanten, remaining pais, remaining rounds
-# init => reset => step => ... => step
+# init => reset => step => ... => step => reset => ...
 
 import random
 from typing import *
@@ -9,6 +9,8 @@ from shanten import *
 
 class Gaming():
     def __init__(self):
+        self.state_dim = 34 + 3 + 1
+        self.action_dim = 34
         self.shanten_calculator = ShantenCalculator()
         
     def reset(self) -> list[int]:
@@ -24,7 +26,7 @@ class Gaming():
         # 配牌
         self.shoupai: list = self.generate_peipai(self.side)
         self.zimopai: int = None
-        # 摸打过程
+        # # 摸打过程
         self.mopai()
         # 返回当前张量状态
         return self.calc_state()
@@ -38,7 +40,7 @@ class Gaming():
         random.shuffle(numbers)
         return tuple(numbers)
     
-    def generate_peipai(self, side: int) -> tuple[int, ...]:
+    def generate_peipai(self, side: int) -> list[int]:
         # (0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,0,1,2,3)
         peipai = []
         for _ in range(3):
@@ -46,7 +48,7 @@ class Gaming():
             self.paishan_array += 4*4
         peipai.append(self.paishan[self.paishan_array+side])
         self.paishan_array += 4
-        peipai.sort()
+        peipai.sort() # 手牌必须排序
         return peipai
     
     def mopai(self) -> bool:
@@ -61,20 +63,18 @@ class Gaming():
         self.shoupai.sort() # 手牌必须排序
         return True
         
-    def calc_state(self) -> List[int]:
-        # [3,3,0,3,3,0,1,0,1, #摸牌后的手牌，例11122244455579m
-        #  0,0,0,0,0,0,0,0,0,
-        #  0,0,0,0,0,0,0,0,0,
-        #  0,0,0,0,0,0,0,
-        #  0,3,11, # 三种向听
-        #  69 # 余牌数
-        #  ]
+    @staticmethod
+    def shoupai_pu_to_net(shoupai) -> list[int]:
         # 手牌数据 牌谱格式->张量格式
         shoupai_net: list = [0]*34
-        for cell in self.shoupai:
+        for cell in shoupai:
             shoupai_net[cell//4] += 1 #对应牌的数量+1
+        return shoupai_net
+    @staticmethod
+    def shoupai_pu_to_text(shoupai) -> str:
         # 手牌数据 牌谱格式->文本格式
-        shoupai_text = ''
+        shoupai_net = Gaming.shoupai_pu_to_net(shoupai)
+        shoupai_text = '|' # 开头字符用于后续修正某花色无牌情况
         i = 0
         while i < 9:
             shoupai_text = shoupai_text + str(i+1)*shoupai_net[i]
@@ -92,6 +92,26 @@ class Gaming():
             shoupai_text = shoupai_text + str(i+1-27)*shoupai_net[i]
             i+=1
         shoupai_text = shoupai_text + 'z'
+        # 修正某花色无牌情况
+        shoupai_text = shoupai_text.replace('sz', 's')
+        shoupai_text = shoupai_text.replace('ps', 'p')
+        shoupai_text = shoupai_text.replace('mp', 'm')
+        shoupai_text = shoupai_text.replace('|m', '|')
+        shoupai_text = shoupai_text.replace('|', '')
+        return shoupai_text
+    
+    def calc_state(self) -> list[int]:
+        # [3,3,0,3,3,0,1,0,1, #摸牌后的手牌，例11122244455579m
+        #  0,0,0,0,0,0,0,0,0,
+        #  0,0,0,0,0,0,0,0,0,
+        #  0,0,0,0,0,0,0,
+        #  0,3,11, # 三种向听
+        #  69 # 余牌数
+        #  ]
+        # 手牌数据 牌谱格式->张量格式
+        shoupai_net = self.shoupai_pu_to_net(self.shoupai)
+        # 手牌数据 牌谱格式->文本格式
+        shoupai_text = self.shoupai_pu_to_text(self.shoupai)
         # 向听
         shoupai_parsed = self.shanten_calculator.parse_hand(shoupai_text)
         shanten_mianzi: int = self.shanten_calculator.shanten(shoupai_parsed, 1)[0]
@@ -107,9 +127,7 @@ class Gaming():
         
     def step(self, action: int) -> tuple[list, float, bool]:
         # return next_state, reward, done
-        # this_shanten = self.shanten_calculator.shanten(self.shoupai, 7)[0]
-        this_shanten = -1
-        #################
+        this_shanten = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 7)[0]
         
         # 弃牌，摸牌，下一步手牌
         qipai = action
@@ -120,9 +138,7 @@ class Gaming():
             
         if self.mopai(): # 有余牌
             # 向听，下一步状态
-            # next_shanten = self.shanten_calculator.shanten(self.shoupai, 7)[0]
-            next_shanten = -1
-            #################
+            next_shanten = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 7)[0]
             
             next_state = self.calc_state()
             # 计算奖励
@@ -136,7 +152,7 @@ class Gaming():
                 reward = 0.0
                 done = False
             elif next_shanten > this_shanten: # 退向
-                reward = 0.5
+                reward = -0.5
                 done = False
         else: # 荒牌流局
             next_state = self.calc_state()
