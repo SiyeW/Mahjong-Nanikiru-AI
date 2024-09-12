@@ -9,9 +9,10 @@ from shanten import *
 
 class Gaming():
     def __init__(self):
-        self.state_dim = 34 + 3 + 1
+        self.state_dim = 4*34+4
         self.action_dim = 34
         self.shanten_calculator = ShantenCalculator()
+        self.traning_log: bool = False
         
     def reset(self) -> list[int]:
         # 局数，东1~南4对应0~7，无本场
@@ -29,7 +30,8 @@ class Gaming():
         # # 摸打过程
         self.mopai()
         # 返回当前张量状态
-        return self.calc_state()
+        state = self.calc_state()
+        return state
         
     @staticmethod
     def generate_paishan() -> tuple[int, ...]:
@@ -71,33 +73,54 @@ class Gaming():
             shoupai_net[cell//4] += 1 #对应牌的数量+1
         return shoupai_net
     @staticmethod
-    def shoupai_pu_to_text(shoupai) -> str:
+    def shoupai_pu_to_onehot(shoupai) -> list[int]: #shape: [4, 34]
+        # 手牌数据 牌谱格式->独热格式
+        shoupai_onehot: list[list[int]] = [[0]*34]*4
+        for cell in shoupai:
+            for i in range(4):
+                if not(shoupai_onehot[i][cell//4]): #对应牌的数量n维位置无牌
+                    shoupai_onehot[i][cell//4] = 1
+                    break
+                else:
+                    continue
+            # else:
+            #     raise ValueError # 一门牌有第五张
+        return shoupai_onehot
+    @staticmethod
+    def shoupai_pu_to_text(shoupai, visualize: bool=False) -> str:
         # 手牌数据 牌谱格式->文本格式
         shoupai_net = Gaming.shoupai_pu_to_net(shoupai)
-        shoupai_text = '|' # 开头字符用于后续修正某花色无牌情况
         i = 0
-        while i < 9:
-            shoupai_text = shoupai_text + str(i+1)*shoupai_net[i]
-            i+=1
-        shoupai_text = shoupai_text + 'm'
-        while i < 18:
-            shoupai_text = shoupai_text + str(i+1-9)*shoupai_net[i]
-            i+=1
-        shoupai_text = shoupai_text + 'p'
-        while i < 27:
-            shoupai_text = shoupai_text + str(i+1-18)*shoupai_net[i]
-            i+=1
-        shoupai_text = shoupai_text + 's'
-        while i < 34:
-            shoupai_text = shoupai_text + str(i+1-27)*shoupai_net[i]
-            i+=1
-        shoupai_text = shoupai_text + 'z'
-        # 修正某花色无牌情况
-        shoupai_text = shoupai_text.replace('sz', 's')
-        shoupai_text = shoupai_text.replace('ps', 'p')
-        shoupai_text = shoupai_text.replace('mp', 'm')
-        shoupai_text = shoupai_text.replace('|m', '|')
-        shoupai_text = shoupai_text.replace('|', '')
+        if not(visualize): # 使用常规记牌
+            shoupai_text = '|' # 开头字符用于后续修正某花色无牌情况
+            while i < 9:
+                shoupai_text = shoupai_text + str(i+1)*shoupai_net[i]
+                i+=1
+            shoupai_text = shoupai_text + 'm'
+            while i < 18:
+                shoupai_text = shoupai_text + str(i+1-9)*shoupai_net[i]
+                i+=1
+            shoupai_text = shoupai_text + 'p'
+            while i < 27:
+                shoupai_text = shoupai_text + str(i+1-18)*shoupai_net[i]
+                i+=1
+            shoupai_text = shoupai_text + 's'
+            while i < 34:
+                shoupai_text = shoupai_text + str(i+1-27)*shoupai_net[i]
+                i+=1
+            shoupai_text = shoupai_text + 'z'
+            # 修正某花色无牌情况
+            shoupai_text = shoupai_text.replace('sz', 's')
+            shoupai_text = shoupai_text.replace('ps', 'p')
+            shoupai_text = shoupai_text.replace('mp', 'm')
+            shoupai_text = shoupai_text.replace('|m', '|')
+            shoupai_text = shoupai_text.replace('|', '')
+        else: # 使用可视化
+            characters = '🀇🀈🀉🀊🀋🀌🀍🀎🀏🀙🀚🀛🀜🀝🀞🀟🀠🀡🀐🀑🀒🀓🀔🀕🀖🀗🀘🀀🀁🀂🀃🀆🀅🀄'
+            shoupai_text = ''
+            while i < 34:
+                shoupai_text = shoupai_text + characters[i]*shoupai_net[i]
+                i+=1
         return shoupai_text
     
     def calc_state(self) -> list[int]:
@@ -108,8 +131,12 @@ class Gaming():
         #  0,3,11, # 三种向听
         #  69 # 余牌数
         #  ]
+        # 日志
+        self.traning_log_shoupai(self.shoupai)
         # 手牌数据 牌谱格式->张量格式
         shoupai_net = self.shoupai_pu_to_net(self.shoupai)
+        # 手牌数据 牌谱格式->独热格式
+        shoupai_onehot = self.shoupai_pu_to_onehot(self.shoupai)
         # 手牌数据 牌谱格式->文本格式
         shoupai_text = self.shoupai_pu_to_text(self.shoupai)
         # 向听
@@ -120,14 +147,27 @@ class Gaming():
         shanten: list = [shanten_mianzi, shanten_qidui, shanten_guoshi]
         # 余牌数
         remaining_pai: int = 136 - 14 - self.paishan_array
-        # 组合
-        state: list = shoupai_net + shanten + [remaining_pai]
-        self.log(shoupai_text)
+        # 组合成state
+        state: list[int] = [item for sublist in shoupai_onehot for item in sublist] + shanten + [remaining_pai]
         return state
         
     def step(self, action: int) -> tuple[list, float, bool]:
         # return next_state, reward, done
-        this_shanten = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 7)[0]
+        
+        # 日志
+        self.traning_log_action(action)
+        
+        # 行为不合法
+        if not(self.shoupai_pu_to_net(self.shoupai)[action]):
+            reward = -10.0
+            done = False # 重下一次
+            next_state = self.calc_state()
+            
+            self.traning_log_reward(reward)
+            return (next_state, reward, done)
+        
+        this_shanten_mianzi = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 1)[0]
+        this_shanten = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 6)[0]
         
         # 弃牌，摸牌，下一步手牌
         qipai = action
@@ -138,35 +178,50 @@ class Gaming():
             
         if self.mopai(): # 有余牌
             # 向听，下一步状态
-            next_shanten = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 7)[0]
+            next_shanten_mianzi = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 1)[0]
+            next_shanten = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 6)[0]
             
             next_state = self.calc_state()
             # 计算奖励
             if next_shanten == 0: # 自摸
-                reward = 2.0
+                reward = 5.0
                 done = True
             elif next_shanten < this_shanten: # 进向
                 reward = 0.5
+                if next_shanten_mianzi < this_shanten_mianzi:
+                    reward += 1 # 面子手进向额外加分
                 done = False
             elif next_shanten == this_shanten: # 不变
                 reward = 0.0
                 done = False
             elif next_shanten > this_shanten: # 退向
-                reward = -0.5
+                reward = -1.0
                 done = False
         else: # 荒牌流局
             next_state = self.calc_state()
-            reward = 1.0 - this_shanten / 2 # 一向听以内正分
+            reward = 2.0 - this_shanten # 一向听以内正分
             done = True
         
+        self.traning_log_reward(reward)
         return (next_state, reward, done)
-    def log(self, text: str) -> None:
-        print(text)
+    
+    def traning_log_shoupai(self, shoupai) -> None:
+        if self.traning_log:
+            text = Gaming.shoupai_pu_to_text(shoupai, True)
+            print(text, end='\t')
+    def traning_log_action(self, action) -> None:
+        if self.traning_log:
+            text = Gaming.shoupai_pu_to_text((action*4,), True)
+            print(text)
+    def traning_log_reward(self, reward) -> None:
+        if self.traning_log:
+            print(reward)
 
 if __name__ == '__main__':
     gaming = Gaming()
-    print(gaming.reset())
-    # print(gaming.shoupai)
+    gaming.traning_log = True
+    gaming.reset()
+    # print(gaming.reset())
     try:
         while True:
             decision = input()
@@ -178,6 +233,7 @@ if __name__ == '__main__':
                 action = int(decision[0])-1+18
             elif decision[1] == 'z':
                 action = int(decision[0])-1+27
-            print(gaming.step(action))
+            # print(gaming.step(action))
+            gaming.step(action)
     except KeyboardInterrupt:
         pass
