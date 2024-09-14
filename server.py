@@ -12,7 +12,7 @@ class Gaming():
         self.state_dim = 4*34+4
         self.action_dim = 34
         self.shanten_calculator = ShantenCalculator()
-        self.traning_log: bool = False
+        self.training_log: bool = False
         
     def reset(self) -> list[int]:
         # 局数，东1~南4对应0~7，无本场
@@ -55,6 +55,8 @@ class Gaming():
     
     def mopai(self) -> bool:
         # False: game end
+        self.prev_shoupai = self.shoupai # 记录上一步手牌，用于计算向听
+        
         self.paishan_array += 3 # 他家摸牌计数
         remaining_pai = 136 - 14 - self.paishan_array
         if remaining_pai <= 0:
@@ -132,19 +134,20 @@ class Gaming():
         #  69 # 余牌数
         #  ]
         # 日志
-        self.traning_log_shoupai(self.shoupai)
+        self.training_log_shoupai(self.shoupai)
         # 手牌数据 牌谱格式->张量格式
         shoupai_net = self.shoupai_pu_to_net(self.shoupai)
         # 手牌数据 牌谱格式->独热格式
         shoupai_onehot = self.shoupai_pu_to_onehot(self.shoupai)
         # 手牌数据 牌谱格式->文本格式
         shoupai_text = self.shoupai_pu_to_text(self.shoupai)
-        # 向听
-        shoupai_parsed = self.shanten_calculator.parse_hand(shoupai_text)
-        shanten_mianzi: int = self.shanten_calculator.shanten(shoupai_parsed, 1)[0]
-        shanten_qidui: int = self.shanten_calculator.shanten(shoupai_parsed, 2)[0]
-        shanten_guoshi: int = self.shanten_calculator.shanten(shoupai_parsed, 4)[0]
-        shanten: list = [shanten_mianzi, shanten_qidui, shanten_guoshi]
+        prev_shoupai_text = self.shoupai_pu_to_text(self.prev_shoupai)
+        # 摸牌前向听
+        prev_shoupai_parsed = self.shanten_calculator.parse_hand(prev_shoupai_text)
+        prev_shanten_mianzi: int = self.shanten_calculator.shanten(prev_shoupai_parsed, 1)[0][0]
+        prev_shanten_qidui: int = self.shanten_calculator.shanten(prev_shoupai_parsed, 2)[0][0]
+        prev_shanten_guoshi: int = self.shanten_calculator.shanten(prev_shoupai_parsed, 4)[0][0]
+        shanten: list = [prev_shanten_mianzi, prev_shanten_qidui, prev_shanten_guoshi]
         # 余牌数
         remaining_pai: int = 136 - 14 - self.paishan_array
         # 组合成state
@@ -155,7 +158,7 @@ class Gaming():
         # return next_state, reward, done
         
         # 日志
-        self.traning_log_action(action)
+        self.training_log_action(action)
         
         # 行为不合法
         if not(self.shoupai_pu_to_net(self.shoupai)[action]):
@@ -163,11 +166,11 @@ class Gaming():
             done = False # 重下一次
             next_state = self.calc_state()
             
-            self.traning_log_reward(reward)
+            self.training_log_reward(reward)
             return (next_state, reward, done)
         
-        this_shanten_mianzi = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 1)[0]
-        this_shanten = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 6)[0]
+        (this_shanten_mianzi, _), this_jinzhang_mianzi = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 1)
+        (this_shanten, _), this_jinzhang = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 3)
         
         # 弃牌，摸牌，下一步手牌
         qipai = action
@@ -175,51 +178,62 @@ class Gaming():
             if qipai*4+i in self.shoupai:
                 self.shoupai.remove(qipai*4+i)
                 break
-            
+        
         if self.mopai(): # 有余牌
-            # 向听，下一步状态
-            next_shanten_mianzi = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 1)[0]
-            next_shanten = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.shoupai), 6)[0]
+            # 打牌后向听，下一步状态
+            (next_shanten_mianzi, _), next_jinzhang_mianzi = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 1)
+            (next_shanten, _), next_jinzhang = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 3)
             
             next_state = self.calc_state()
             # 计算奖励
+            reward = 0
             if next_shanten == 0: # 自摸
-                reward = 5.0
+                reward += 1.0
                 done = True
             elif next_shanten < this_shanten: # 进向
-                reward = 0.5
+                reward += 0.1
                 if next_shanten_mianzi < this_shanten_mianzi:
-                    reward += 1 # 面子手进向额外加分
+                    reward += 0.2 # 面子手进向额外加分
                 done = False
             elif next_shanten == this_shanten: # 不变
-                reward = 0.0
+                reward += 0.01
+                # 进张
+                if next_jinzhang_mianzi > this_jinzhang_mianzi:
+                    reward += 0.05
+                elif next_jinzhang_mianzi == this_jinzhang_mianzi:
+                    reward += 0.02
+                else:
+                    reward += -0.1
                 done = False
             elif next_shanten > this_shanten: # 退向
-                reward = -1.0
+                reward += -0.1
                 done = False
         else: # 荒牌流局
             next_state = self.calc_state()
-            reward = 2.0 - this_shanten # 一向听以内正分
+            reward = 2.0 - this_shanten/2 # 一向听以内正分
             done = True
         
-        self.traning_log_reward(reward)
+        self.training_log_reward(reward)
         return (next_state, reward, done)
     
-    def traning_log_shoupai(self, shoupai) -> None:
-        if self.traning_log:
+    def training_log_shoupai(self, shoupai) -> None:
+        if self.training_log:
             text = Gaming.shoupai_pu_to_text(shoupai, True)
-            print(text, end='\t')
-    def traning_log_action(self, action) -> None:
-        if self.traning_log:
+            print(text, end=' ')
+    def training_log_action(self, action) -> None:
+        if self.training_log:
             text = Gaming.shoupai_pu_to_text((action*4,), True)
             print(text)
-    def traning_log_reward(self, reward) -> None:
-        if self.traning_log:
-            print(reward)
+    def training_log_reward(self, reward) -> None:
+        if self.training_log:
+            print(f'{reward:.3f}')
+    def training_log_text(self, text) -> None:
+        if self.training_log:
+            print(text, end='')
 
 if __name__ == '__main__':
     gaming = Gaming()
-    gaming.traning_log = True
+    gaming.training_log = True
     gaming.reset()
     # print(gaming.reset())
     try:

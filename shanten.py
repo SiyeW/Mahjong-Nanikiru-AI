@@ -86,7 +86,7 @@ class ShantenCalculator:
             else:
                 current_tiles += char
 
-        return tuple(hand)
+        return list(hand)
 
     @staticmethod
     def add1(lhs: List[int], rhs: List[int], m: int) -> List[int]:
@@ -147,7 +147,12 @@ class ShantenCalculator:
         kind = sum(1 for i in [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33] if hand[i] > 0)
         return 14 - kind - (1 if pair > 0 else 0)
 
-    def calc(self, hand: List[int], mode: int, m: int) -> Tuple[int, int]:
+    def calc(self, hand: List[int], mode: int) -> Tuple[int, int]:
+        # 根据手牌数量确定对应的m，手牌数量异常时m按4处理
+        hand_number = sum(hand)
+        m_dict = {1:0, 2: 0, 4:1, 5: 1, 7:2, 8: 2, 10:3, 11: 3, 13:4, 14: 4}
+        m = m_dict.get(hand_number, 4)
+        
         # 根据模式计算不同向听数
         ret = [1024, 0]
 
@@ -171,16 +176,39 @@ class ShantenCalculator:
                 ret = [sht, 4]
             elif sht == ret[0]:
                 ret[1] |= 4
-
+                
         return tuple(ret)
 
-    def shanten(self, hand: List[int], mode: int = 7) -> Tuple[int, int]:
-        # 根据手牌数量确定对应的m，手牌数量异常时m按4处理
-        hand_number = sum(hand)
-        m_dict = {1:0, 2: 0, 4:1, 5: 1, 7:2, 8: 2, 10:3, 11: 3, 13:4, 14: 4}
-        m = m_dict.get(hand_number, 4)
+    def shanten(self, hand: List[int], mode: int = 7) -> Tuple[tuple[int, int], tuple[int, list[int]]|tuple[None]]:
         # 计算手牌向听数
-        return self.calc(hand, mode, m)
+        shanten = self.calc(hand, mode)
+        # 计算手牌进张
+        jinzhang = self.jinzhang(hand) if sum(hand) == 13 else ()
+        
+        return shanten, jinzhang
+    
+    def jinzhang(self, hand: list[int], mode: int = 7) -> tuple[int, list[int]]:
+        hand_number = sum(hand)
+        if hand_number not in [1, 4, 7, 10, 13]:
+            return -1, [] # 手牌数量不对
+        jinzhang_tile = []
+        shanten, _ = self.calc(hand, mode)
+        for tile in range(34):
+            next_hand = hand.copy()
+            if hand[tile] < 4:
+                next_hand[tile] += 1
+                next_shanten, _ = self.calc(next_hand, mode)
+                if next_shanten < shanten:
+                    # print(next_shanten, shanten, tile)
+                    jinzhang_tile.append(tile)
+            else:
+                continue
+        # 计算进张枚数
+        jinzhang_number = 0
+        for tile in jinzhang_tile:
+            jinzhang_number += 4 - hand[tile]
+        return jinzhang_number, jinzhang_tile
+            
 
 # # Example 1：
 # calculator = ShantenCalculator()
@@ -194,11 +222,11 @@ class ShantenCalculator:
 # # (向听数+1，对应牌型)
 
 # # Example 2:
-# calculator = ShantenCalculator()
-# hand_parsed = ShantenCalculator.parse_hand("1333599m1355667p")
-# print(hand_parsed)
-# result = calculator.shanten(hand_parsed)
-# print(result)
+calculator = ShantenCalculator()
+hand_parsed = ShantenCalculator.parse_hand("1122334456789mp")
+print(hand_parsed)
+result = calculator.shanten(hand_parsed)
+print(result)
 
 # calculator = ShantenCalculator()
 # result = calculator.shanten((1, 0, 3, 0, 1, 0, 0, 0, 2, 1, 0, 1, 0, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))

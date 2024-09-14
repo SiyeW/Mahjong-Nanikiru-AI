@@ -13,6 +13,9 @@ import server
 class DQN(nn.Module):
     def __init__(self, state_dim, action_dim):
         super(DQN, self).__init__()
+        
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
         self.state_dim = state_dim
         self.action_dim = action_dim
         
@@ -25,13 +28,13 @@ class DQN(nn.Module):
             # nn.Conv2d(in_channels=6, out_channels=9, kernel_size=(1, 3), stride=1, padding=(0, 1)),  # 第三层卷积，最终输出9个通道
             # nn.ReLU(),
             nn.Flatten()
-        )
+        ).to(self.device)
 
         # 归一化层
         # self.norm_shupai = nn.BatchNorm2d(1)
         # self.norm_zipai = nn.LayerNorm(7)
-        self.norm_shoupai = nn.BatchNorm2d(1)
-        self.norm_extra = nn.LayerNorm(4)
+        self.norm_shoupai = nn.BatchNorm2d(1).to(self.device)
+        self.norm_extra = nn.LayerNorm(4).to(self.device)
 
         # 2或3层全连接层，将卷积输出与后面的额外数据拼接一起
         self.fc = nn.Sequential(
@@ -40,7 +43,7 @@ class DQN(nn.Module):
             nn.Linear(1024, 512),
             nn.ReLU(),
             nn.Linear(512, self.action_dim)  # 最后输出的维度为action_dim
-        )
+        ).to(self.device)
 
     def forward(self, state):
         
@@ -71,7 +74,7 @@ class DQN(nn.Module):
         return output
 
 class Agent():
-    def __init__(self, state_dim, action_dim, memory_size=10000, batch_size=32, gamma=0.99, lr=1e-5, weight_decay=1e-4):
+    def __init__(self, state_dim, action_dim, memory_size=10000, batch_size=32, gamma=0.99, lr=1e-4, weight_decay=1e-4):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -96,6 +99,7 @@ class Agent():
         mask = torch.FloatTensor(state[:self.action_dim]).to(self.device)  # state 中非0的部分表示可行动作
 
         if random.random() < eps:
+            env.training_log_text('*')
             random_action = random.randint(0, self.action_dim - 1)
             # 屏蔽非法弃牌，通过mask判断合法性
             while mask[random_action] == 0:  # 判断合法性
@@ -109,6 +113,7 @@ class Agent():
                 # 将非法动作的Q值设为-1024
                 q_values[mask == 0] = -1024  # mask == 0 表示非法动作
                 
+                env.training_log_text(f'{max(q_values):5.3f}')
                 action = q_values.argmax().item()
             return action
         
@@ -172,14 +177,15 @@ class Agent():
             print(f"Loaded model from {model_path}")
         else:
             print("No pre-trained model found, starting fresh.")
-        
-def train_dqn(env, agent, eps_start=1, eps_end=0.1, eps_decay=0.999, max_episodes=10000, max_steps=18):
+
+# def train_dqn(env, agent, eps_start=1, eps_end=0.1, eps_decay=0.999, max_episodes=10000, max_steps=18):
+def train_dqn(env, agent, eps_start=0.1, eps_end=0.1, eps_decay=0.999, max_episodes=10000, max_steps=18):
     eps = eps_start
     for episode in tqdm(range(max_episodes)):
         if episode % 100 == 0:
-            env.traning_log = True
+            env.training_log = True
         else:
-            env.traning_log = False
+            env.training_log = False
         state = env.reset()
         for step in range(max_steps):
             action = agent.select_action(state, eps)
