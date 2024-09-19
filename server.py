@@ -169,8 +169,9 @@ class Gaming():
             self.training_log_reward(reward)
             return (next_state, reward, done)
         
-        (this_shanten_mianzi, _), this_jinzhang_mianzi = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 1)
-        (this_shanten, _), this_jinzhang = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 3)
+        # 准备撤销打牌
+        shoupai_backup = self.shoupai.copy()
+        prev_shoupai_backup = self.prev_shoupai.copy()
         
         # 弃牌，摸牌，下一步手牌
         qipai = action
@@ -179,41 +180,52 @@ class Gaming():
                 self.shoupai.remove(qipai*4+i)
                 break
         
+        (this_shanten_mianzi, _), (this_jinzhang_mianzi, _) = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 1)
+        (this_shanten, _), (this_jinzhang, _) = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 1)
+        
         if self.mopai(): # 有余牌
             # 打牌后向听，下一步状态
-            (next_shanten_mianzi, _), next_jinzhang_mianzi = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 1)
-            (next_shanten, _), next_jinzhang = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 3)
+            (next_shanten_mianzi, _), (next_jinzhang_mianzi, _) = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 1)
+            (next_shanten, _), (next_jinzhang, _) = self.shanten_calculator.shanten(self.shoupai_pu_to_net(self.prev_shoupai), 1)
             
             next_state = self.calc_state()
             # 计算奖励
             reward = 0
             if next_shanten == 0: # 自摸
-                reward += 1.0
+                reward += 3.0
                 done = True
             elif next_shanten < this_shanten: # 进向
                 reward += 0.1
                 if next_shanten_mianzi < this_shanten_mianzi:
-                    reward += 0.2 # 面子手进向额外加分
+                    reward += 0.1 # 面子手进向额外加分
                 done = False
             elif next_shanten == this_shanten: # 不变
-                reward += 0.01
+                reward += 0.00
                 # 进张
                 if next_jinzhang_mianzi > this_jinzhang_mianzi:
-                    reward += 0.05
+                    reward += 0.005
                 elif next_jinzhang_mianzi == this_jinzhang_mianzi:
-                    reward += 0.02
+                    reward += 0.00
                 else:
-                    reward += -0.1
+                    reward += -0.01
+                    self.shoupai = shoupai_backup # 撤销打牌
+                    self.prev_shoupai = prev_shoupai_backup # 撤销打牌
                 done = False
             elif next_shanten > this_shanten: # 退向
-                reward += -0.1
+                reward += -0.3
                 done = False
+                self.shoupai = shoupai_backup # 撤销打牌
+                self.prev_shoupai = prev_shoupai_backup # 撤销打牌
+                
+            self.training_log_text(f"{this_shanten},{this_jinzhang} -> {next_shanten},{next_jinzhang} | {reward:6.3f}")
+        
         else: # 荒牌流局
             next_state = self.calc_state()
-            reward = 2.0 - this_shanten/2 # 一向听以内正分
+            reward = 0.5 if this_shanten <= 2 else 0.0 # 一向听以内正分
             done = True
+            
+            self.training_log_reward(reward)
         
-        self.training_log_reward(reward)
         return (next_state, reward, done)
     
     def training_log_shoupai(self, shoupai) -> None:

@@ -183,7 +183,7 @@ class ShantenCalculator:
         # 计算手牌向听数
         shanten = self.calc(hand, mode)
         # 计算手牌进张
-        jinzhang = self.jinzhang(hand) if sum(hand) == 13 else ()
+        jinzhang = self.jinzhang(hand, mode) if sum(hand) == 13 else ()
         
         return shanten, jinzhang
     
@@ -194,10 +194,12 @@ class ShantenCalculator:
         jinzhang_tile = []
         shanten, _ = self.calc(hand, mode)
         for tile in range(34):
-            next_hand = hand.copy()
+            # next_hand = hand.copy()
+            next_hand = hand # 提速
             if hand[tile] < 4:
                 next_hand[tile] += 1
                 next_shanten, _ = self.calc(next_hand, mode)
+                next_hand[tile] -= 1 # 还原，防止hand也被修改
                 if next_shanten < shanten:
                     # print(next_shanten, shanten, tile)
                     jinzhang_tile.append(tile)
@@ -222,11 +224,12 @@ class ShantenCalculator:
 # # (向听数+1，对应牌型)
 
 # # Example 2:
-calculator = ShantenCalculator()
-hand_parsed = ShantenCalculator.parse_hand("1122334456789mp")
-print(hand_parsed)
-result = calculator.shanten(hand_parsed)
-print(result)
+if __name__ == "__main__":
+    calculator = ShantenCalculator()
+    hand_parsed = ShantenCalculator.parse_hand("11235m5889p277s6z")
+    print(hand_parsed)
+    result = calculator.shanten(hand_parsed, 1)
+    print(result)
 
 # calculator = ShantenCalculator()
 # result = calculator.shanten((1, 0, 3, 0, 1, 0, 0, 0, 2, 1, 0, 1, 0, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))

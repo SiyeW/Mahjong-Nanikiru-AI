@@ -21,7 +21,7 @@ class DQN(nn.Module):
         
         # 输入维度：[4行 * 34列]的手牌状态数据
         self.conv_shupai = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=9, kernel_size=(3, 3), stride=1, padding=(0, 1)),  # 第一层卷积
+            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3, 3), stride=1, padding=(0, 1)),  # 第一层卷积
             nn.ReLU(),
             # nn.Conv2d(in_channels=3, out_channels=6, kernel_size=(1, 3), stride=1, padding=(0, 1)),  # 第二层卷积，通道数增加
             # nn.ReLU(),
@@ -38,7 +38,7 @@ class DQN(nn.Module):
 
         # 2或3层全连接层，将卷积输出与后面的额外数据拼接一起
         self.fc = nn.Sequential(
-            nn.Linear(2*34*9+4, 1024),  # 手牌卷积特征9*9*3 + 三个向听 + 余牌数
+            nn.Linear(2*34*16+4, 1024),  # 手牌卷积特征9*9*3 + 三个向听 + 余牌数
             nn.ReLU(),
             nn.Linear(1024, 512),
             nn.ReLU(),
@@ -63,8 +63,8 @@ class DQN(nn.Module):
 
         # 对手牌进行卷积
         shupai_features = self.conv_shupai(shoupai_state) 
-        # shape (-1, 1, 4, 34) -> (-1, 1, 2, 34) -> (-1, 2*34*9)
-        shupai_features = shupai_features.reshape(-1, 2*34*9) 
+        # shape (-1, 1, 4, 34) -> (-1, 1, 2, 34) -> (-1, 2*34*16)
+        shupai_features = shupai_features.reshape(-1, 2*34*16) 
         
         # 将卷积特征和额外状态拼接起来
         combined = torch.cat([shupai_features, extra_state], dim=1)
@@ -74,7 +74,7 @@ class DQN(nn.Module):
         return output
 
 class Agent():
-    def __init__(self, state_dim, action_dim, memory_size=10000, batch_size=32, gamma=0.99, lr=1e-4, weight_decay=1e-4):
+    def __init__(self, state_dim, action_dim, memory_size=10000, batch_size=64, gamma=0.99, lr=5e-6, weight_decay=1e-10):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -87,7 +87,7 @@ class Agent():
         self.policy_net = DQN(state_dim, action_dim).to(self.device)
         self.target_net = DQN(state_dim, action_dim).to(self.device)
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        self.loss_fn = nn.MSELoss()
+        self.loss_fn = nn.MSELoss().to(self.device)
         self.steps = 0
         self.writer = SummaryWriter()
         
@@ -99,7 +99,7 @@ class Agent():
         mask = torch.FloatTensor(state[:self.action_dim]).to(self.device)  # state 中非0的部分表示可行动作
 
         if random.random() < eps:
-            env.training_log_text('*')
+            env.training_log_text('\n*')
             random_action = random.randint(0, self.action_dim - 1)
             # 屏蔽非法弃牌，通过mask判断合法性
             while mask[random_action] == 0:  # 判断合法性
@@ -110,11 +110,34 @@ class Agent():
             with torch.no_grad():
                 q_values = self.policy_net(state).reshape(-1)
                 
-                # 将非法动作的Q值设为-1024
-                q_values[mask == 0] = -1024  # mask == 0 表示非法动作
+                # 将非法动作的Q值设为-inf
+                q_values[mask == 0] = float("-inf") # mask == 0 表示非法动作
+                # 使用 softmax 函数将 Q 值转换为概率分布，公式 pi = exp(Q/t) / ∑exp(Q/t)
+                t = 0.1 # 温度系数
+                prob_dist = torch.softmax(q_values / t, dim=0)
+
+                # 输出概率分布中最大值对应的动作
+                # action = torch.multinomial(prob_dist, 1).item()
                 
-                env.training_log_text(f'{max(q_values):5.3f}')
-                action = q_values.argmax().item()
+                # 使用 torch.sort() 按照从大到小的顺序排序
+                sorted_prob, sorted_indices = torch.sort(prob_dist, descending=True)
+
+                # sorted_indices[0] 是最大值的索引，依此类推
+                # print(f"Sorted probabilities: {sorted_prob}")
+                # print(f"Sorted indices: {sorted_indices}")
+                # print(prob_dist)
+                
+                # 输出日志 max(q_values)
+                env.training_log_text('\n')
+                for i in range(5):
+                    prob = sorted_prob[i]
+                    indices =  sorted_indices[i].item()
+                    env.training_log_text(f'{prob:.2f}{env.shoupai_pu_to_text((indices*4,), True)} ')
+                env.training_log_text("|  ")
+                
+                # action = q_values.argmax().item()
+                # 输出概率分布中最大值对应的动作
+                action = torch.multinomial(prob_dist, 1).item()
             return action
         
     def store_transition(self, state, action, reward, next_state, done):
@@ -131,19 +154,11 @@ class Agent():
         reward_batch = torch.FloatTensor(batch[2]).to(self.device)
         next_state_batch = torch.FloatTensor(batch[3]).to(self.device)
         done_batch = torch.FloatTensor(batch[4]).to(self.device)
-
-        # # debug
-        # print(a:=self.policy_net(state_batch))
-        # print(b:=action_batch.unsqueeze(1))
-        
-        # q_values1 = self.policy_net(state_batch)
-        # q_values2 = q_values1
-        # q_values3 = q_values2.gather(1, action_batch.unsqueeze(1))
-        # q_values4 = q_values3.squeeze(1)
         
         q_values = self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
         next_q_values = self.target_net(next_state_batch).max(1)[0]
-        expected_q_values = reward_batch + self.gamma * next_q_values * (1 - done_batch)
+        # expected_q_values = (1-self.gamma) * reward_batch + self.gamma * next_q_values * (1 - done_batch)
+        expected_q_values = self.gamma * reward_batch + self.gamma * next_q_values * (1 - done_batch)
 
         loss = self.loss_fn(q_values, expected_q_values.detach())
 
@@ -163,7 +178,7 @@ class Agent():
             os.makedirs('./model/')
         
         # 保存模型，文件名为时间戳
-        model_path = f"./model/dqn_{time.strftime('%y%m%d-%H%M%S')}_{self.steps}.pth"
+        model_path = f"./model/{time.strftime('%m%d%H%M')}_{self.steps}.pth"
         torch.save(self.policy_net.state_dict(), model_path)
         print(f"Model saved at {model_path}")
 
@@ -179,7 +194,7 @@ class Agent():
             print("No pre-trained model found, starting fresh.")
 
 # def train_dqn(env, agent, eps_start=1, eps_end=0.1, eps_decay=0.999, max_episodes=10000, max_steps=18):
-def train_dqn(env, agent, eps_start=0.1, eps_end=0.1, eps_decay=0.999, max_episodes=10000, max_steps=18):
+def train_dqn(env, agent, eps_start=0.6, eps_end=0.4, eps_decay=0.998, max_episodes=10000, max_steps=18):
     eps = eps_start
     for episode in tqdm(range(max_episodes)):
         if episode % 100 == 0:
